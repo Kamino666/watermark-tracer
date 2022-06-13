@@ -1,10 +1,15 @@
-from PIL import Image, ImageFont, ImageDraw
+import random
+from typing import Union
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+from os.path import join as pjoin
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import skimage.draw as draw
-import random
-from typing import Union
+from PIL import Image, ImageFont, ImageDraw
+from tqdm import tqdm
 
 
 def rotate_points(points: np.ndarray, matrix: np.ndarray):
@@ -95,6 +100,7 @@ def apply_watermark_to_image(image, watermark, position=(0, 0)):
     return new_img
 
 
+# The main function of adding a watermark to the image
 def add_watermark(image: Image.Image, watermark: Image.Image,
                   alpha: Union[float, tuple], position: str,
                   scale: Union[float, tuple] = .3,
@@ -115,6 +121,7 @@ def add_watermark(image: Image.Image, watermark: Image.Image,
         determine_random_value(tile_density[0], (0, 10)),
         determine_random_value(tile_density[1], (0, 10))
     )
+    offset_scale = determine_random_value(offset_scale)
 
     # 假如是左右的sidebar，则预处理watermark
     if position in ['left_sidebar', 'right_sidebar']:
@@ -139,7 +146,7 @@ def add_watermark(image: Image.Image, watermark: Image.Image,
     (iw, ih), (ww, wh) = image.size, watermark.size
     offset = int(min(iw, ih) * offset_scale)
     if position in ['l', 'r', 'b', 't', 'tl', 'tr', 'bl', 'br',
-                    'center', 'left_sidebar', 'right_sidebar', 'bottom_sidebar']:
+                    'center', 'left_sidebar', 'right_sidebar']:
         match position:
             case 'l':
                 position = offset, ih // 2 - wh // 2
@@ -187,6 +194,7 @@ def add_watermark(image: Image.Image, watermark: Image.Image,
         return new_img, [(position[0], position[1], position[0] + ww, position[1] + wh)]
 
 
+# The main function of generating a watermark
 def get_watermark(logo, text: str, font_path="./SourceHanSansCN-Regular.otf"):
     logo: Image.Image = Image.open(logo)
     if text == '':
@@ -210,21 +218,118 @@ def get_watermark(logo, text: str, font_path="./SourceHanSansCN-Regular.otf"):
     return watermark
 
 
+class WatermarkedImageGenerator:
+    def __init__(self, data_dir: str, output_dir: str, num_workers=4, schemata=None, schemata_weight=None,
+                 logo_dir="./logos", name_source="./douban_usernames.txt"):
+        """
+        :param data_dir: scan all images(jpg,png) in the folder/sub-folder
+        """
+        self.img_list = list(Path(data_dir).rglob('*.jpg')) + \
+                        list(Path(data_dir).rglob('*.png')) + \
+                        list(Path(data_dir).rglob('*.JPEG'))
+        print(f'reading {len(self.img_list)} images')
+
+        self.schemata = self.get_default_schemata() if schemata is None else schemata
+        self.schemata_weight = schemata_weight
+        self.num_workers = num_workers
+        self.output_dir = output_dir
+
+        with open(pjoin(logo_dir, 'combined.txt'), encoding='utf-8') as f:
+            self.combined_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
+        with open(pjoin(logo_dir, 'independent.txt'), encoding='utf-8') as f:
+            self.independent_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
+        print(self.combined_logos)
+        print(self.independent_logos)
+        with open(name_source, encoding='utf-8') as f:
+            self.name_list = [i[:-1] for i in f.readlines()]
+
+    @staticmethod
+    def get_default_schemata():
+        schemata = [
+            ('combined', (0.4, 1.0), 'random', (.08, .14), (.02, .03), ((1, 1.5), (.8, 2)), 0),
+            ('independent', (0.4, 1.0), 'random', (.08, .14), (.02, .03), ((1, 1.5), (.8, 2)), 0),
+            ('combined', (0.4, 1.0), 'tile', (.08, .09), (.02, .03), ((.3, .5), (1.2, 4)), (-45, 45)),
+            ('independent', (0.4, 1.0), 'tile', (.08, .11), (.02, .03), ((1, 1.5), (1.2, 4)), (-45, 45)),
+            ('combined', (0.4, 1.0), 'sidebar', (.08, .14), (.02, .03), ((1, 1.5), (.8, 2)), 0),
+        ]
+        return schemata
+
+    def generate(self, num):
+        """generate num images with watermark"""
+        pool = ProcessPoolExecutor(max_workers=self.num_workers)
+        futures = []
+        for img_path in tqdm(self.img_list[:num], desc='allocating'):
+            idx = np.random.choice(range(len(self.schemata)), p=self.schemata_weight)
+            futures.append(
+                pool.submit(self._gen_wm_imgs, img_path, self.schemata[idx])
+            )
+        for future in tqdm(futures, desc='processing'):
+            img, boxes, path = future.result()
+            img.save(pjoin(self.output_dir, 'images', path.stem + '.jpg'))
+            with open(pjoin(self.output_dir, 'labels', path.stem + '.txt'), 'w+') as f:
+                for box in boxes:
+                    content = [
+                        0,
+                        (box[2] + box[0]) / img.width / 2,
+                        (box[3] + box[1]) / img.height / 2,
+                        (box[2] - box[0]) / img.width,
+                        (box[3] - box[1]) / img.height
+                    ]
+                    f.write(" ".join(map(lambda x: str(x), content)) + '\n')
+
+    def _gen_wm_imgs(self, img_path, schema):
+        if schema[0] == 'independent':
+            logo = random.choice(self.independent_logos)
+            wm = get_watermark(logo, '')
+        else:
+            logo = random.choice(self.combined_logos)
+            name = random.choice(self.name_list)
+            wm = get_watermark(logo, random.choice(['', '@']) + name)
+
+        if schema[2] == 'random':
+            position = random.choice(['l', 'r', 'b', 't', 'tl', 'tr', 'bl', 'br', 'center', 'random'])
+        elif schema[2] == 'sidebar':
+            position = random.choice(['left_sidebar', 'right_sidebar'])
+        else:
+            position = schema[2]
+
+        img, boxes = add_watermark(
+            Image.open(str(img_path)),
+            watermark=wm,
+            alpha=schema[1],
+            position=position,
+            scale=schema[3],
+            offset_scale=schema[4],
+            tile_density=schema[5],
+            tile_rotate=schema[6]
+        )
+        return img.convert('RGB'), boxes, img_path
+
+
 if __name__ == '__main__':
-    water_mark = get_watermark('test_imgs/wechat.png', '@打哈欠的小汪')
-    img, boxes = add_watermark(
-        Image.open('test_imgs/n01440764_12063.jpg'),
-        watermark=water_mark,
-        alpha=0.7,
-        position='right_sidebar',
-        scale=.1,
-        tile_density=(.5, 2),
-        tile_rotate=-30
+    # water_mark = get_watermark("test_imgs/知乎.png", "@伸懒腰的小喵喵")
+    # img, boxes = add_watermark(
+    #     Image.open('test_imgs/big_road.jpg'),
+    #     watermark=water_mark,
+    #     alpha=0.4,
+    #     position='random',
+    #     scale=.1,
+    #     offset_scale=.03,
+    #     tile_density=((1, 1.5), (.8, 2)),
+    #     tile_rotate=-45
+    # )
+    # img.save('sample2.png')
+    # new_img = np.array(img)
+    # for point in boxes:
+    #     rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
+    #     new_img[cc, rr] = (0, 255, 255, 255)
+    # new_img = Image.fromarray(new_img)
+    # plt.imshow(new_img)
+    # plt.show()
+    generator = WatermarkedImageGenerator(
+        './ImageNet 1000 (mini)',
+        './WatermarkDataset',
+        num_workers=4,
+        schemata_weight=[.3, .3, .1, .1, .2]
     )
-    new_img = np.array(img)
-    for point in boxes:
-        rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
-        new_img[cc, rr] = (0, 255, 255, 255)
-    new_img = Image.fromarray(new_img)
-    plt.imshow(new_img)
-    plt.show()
+    generator.generate(38668)
