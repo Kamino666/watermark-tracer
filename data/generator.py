@@ -3,6 +3,8 @@ from typing import Union
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from os.path import join as pjoin
+import os
+import argparse
 
 import cv2
 import matplotlib.pyplot as plt
@@ -227,12 +229,18 @@ class WatermarkedImageGenerator:
         self.img_list = list(Path(data_dir).rglob('*.jpg')) + \
                         list(Path(data_dir).rglob('*.png')) + \
                         list(Path(data_dir).rglob('*.JPEG'))
+        if len(self.img_list) == 0:
+            raise ValueError(f"Images are not found in the folder {data_dir}.")
         print(f'reading {len(self.img_list)} images')
 
         self.schemata = self.get_default_schemata() if schemata is None else schemata
         self.schemata_weight = schemata_weight
         self.num_workers = num_workers
-        self.output_dir = output_dir
+        self.output_dir = Path(output_dir)
+        if self.output_dir.exists() is False:
+            os.mkdir(self.output_dir)
+            os.mkdir(pjoin(self.output_dir, 'images'))
+            os.mkdir(pjoin(self.output_dir, 'labels'))
 
         with open(pjoin(logo_dir, 'combined.txt'), encoding='utf-8') as f:
             self.combined_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
