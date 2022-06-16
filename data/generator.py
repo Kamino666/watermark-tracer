@@ -107,7 +107,7 @@ def add_watermark(image: Image.Image, watermark: Image.Image,
                   alpha: Union[float, tuple], position: str,
                   scale: Union[float, tuple] = .3,
                   offset_scale: Union[float, tuple] = .02,
-                  tile_density: Union[tuple, tuple[float]] = (0.5, 1),
+                  tile_density: Union[tuple] = (0.5, 1),
                   tile_rotate: Union[float, tuple] = 45):
     """
     :return: image, (x, y, x+w, y+h)
@@ -149,29 +149,28 @@ def add_watermark(image: Image.Image, watermark: Image.Image,
     offset = int(min(iw, ih) * offset_scale)
     if position in ['l', 'r', 'b', 't', 'tl', 'tr', 'bl', 'br',
                     'center', 'left_sidebar', 'right_sidebar']:
-        match position:
-            case 'l':
-                position = offset, ih // 2 - wh // 2
-            case 'r':
-                position = iw - ww - offset, ih // 2 - wh // 2
-            case 't':
-                position = iw // 2 - ww // 2, offset
-            case 'b':
-                position = iw // 2 - ww // 2, ih - wh - offset
-            case 'tl':
-                position = offset, offset
-            case 'tr':
-                position = iw - ww - offset, offset
-            case 'bl':
-                position = offset, ih - wh - offset
-            case 'br':
-                position = iw - ww - offset, ih - wh - offset
-            case 'center':
-                position = iw // 2 - ww // 2, ih // 2 - wh // 2
-            case 'right_sidebar':
-                position = iw - ww, int(ih * 0.75)
-            case 'left_sidebar':
-                position = 0, int(ih * 0.75)
+        if position == 'l':
+            position = offset, ih // 2 - wh // 2
+        elif position == 'r':
+            position = iw - ww - offset, ih // 2 - wh // 2
+        elif position == 't':
+            position = iw // 2 - ww // 2, offset
+        elif position == 'b':
+            position = iw // 2 - ww // 2, ih - wh - offset
+        elif position == 'tl':
+            position = offset, offset
+        elif position == 'tr':
+            position = iw - ww - offset, offset
+        elif position == 'bl':
+            position = offset, ih - wh - offset
+        elif position == 'br':
+            position = iw - ww - offset, ih - wh - offset
+        elif position == 'center':
+            position = iw // 2 - ww // 2, ih // 2 - wh // 2
+        elif position == 'right_sidebar':
+            position = iw - ww, int(ih * 0.75)
+        elif position == 'left_sidebar':
+            position = 0, int(ih * 0.75)
     elif position == 'random':
         position = (
             int(random.uniform(offset, iw - ww - offset)),
@@ -315,29 +314,29 @@ class WatermarkedImageGenerator:
 
 
 if __name__ == '__main__':
-    # water_mark = get_watermark("test_imgs/知乎.png", "@伸懒腰的小喵喵")
-    # img, boxes = add_watermark(
-    #     Image.open('test_imgs/big_road.jpg'),
-    #     watermark=water_mark,
-    #     alpha=0.4,
-    #     position='random',
-    #     scale=.1,
-    #     offset_scale=.03,
-    #     tile_density=((1, 1.5), (.8, 2)),
-    #     tile_rotate=-45
-    # )
-    # img.save('sample2.png')
-    # new_img = np.array(img)
-    # for point in boxes:
-    #     rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
-    #     new_img[cc, rr] = (0, 255, 255, 255)
-    # new_img = Image.fromarray(new_img)
-    # plt.imshow(new_img)
-    # plt.show()
-    generator = WatermarkedImageGenerator(
-        './ImageNet 1000 (mini)',
-        './WatermarkDataset',
-        num_workers=4,
-        schemata_weight=[.3, .3, .1, .1, .2]
+    water_mark = get_watermark("test_imgs/知乎.png", "@伸懒腰")
+    img, boxes = add_watermark(
+        Image.open('test_imgs/big_road.jpg'),
+        watermark=water_mark,
+        alpha=0.4,
+        position='tile',
+        scale=.07,
+        offset_scale=.03,
+        tile_density=(0.5, 1.2),
+        tile_rotate=10
     )
-    generator.generate(38668)
+    img.save('sample5.png')
+    new_img = np.array(img)
+    for point in boxes:
+        rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
+        new_img[cc, rr] = (0, 255, 255, 255)
+    new_img = Image.fromarray(new_img)
+    plt.imshow(new_img)
+    plt.show()
+    # generator = WatermarkedImageGenerator(
+    #     './ImageNet 1000 (mini)',
+    #     './WatermarkDataset',
+    #     num_workers=4,
+    #     schemata_weight=[.3, .3, .1, .1, .2]
+    # )
+    # generator.generate(38668)

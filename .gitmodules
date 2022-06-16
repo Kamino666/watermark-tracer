@@ -1,0 +1,3 @@
+[submodule "searchengine"]
+	path = searchengine
+	url = https://github.com/zhu733756/searchengine.git
