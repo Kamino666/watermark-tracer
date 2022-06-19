@@ -326,7 +326,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--test', action='store_true', help="测试代码能否正常运行")
     parser.add_argument('--images_dir', type=str, default='./ImageNet 1000 (mini)', help="输入图片目录")
-    parser.add_argument('--logo_dir', type=str, default='./logos3', help="输入水印logo目录")
+    parser.add_argument('--logo_dir', type=str, default='./logos', help="输入水印logo目录")
     parser.add_argument('--output_dir', type=str, default='./WatermarkDataset', help="输出目录")
     parser.add_argument('--num_workers', type=int, default=4, help="进程数")
     parser.add_argument('-n', '--num', type=int, default=-1, help="生成图片数量")
