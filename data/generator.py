@@ -3,6 +3,7 @@ from typing import Union
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from os.path import join as pjoin
+from itertools import cycle, islice
 import os
 import argparse
 
@@ -230,6 +231,7 @@ class WatermarkedImageGenerator:
                         list(Path(data_dir).rglob('*.JPEG'))
         if len(self.img_list) == 0:
             raise ValueError(f"Images are not found in the folder {data_dir}.")
+        random.shuffle(self.img_list)
         print(f'reading {len(self.img_list)} images')
 
         self.schemata = self.get_default_schemata() if schemata is None else schemata
@@ -241,10 +243,13 @@ class WatermarkedImageGenerator:
             os.mkdir(pjoin(self.output_dir, 'images'))
             os.mkdir(pjoin(self.output_dir, 'labels'))
 
-        with open(pjoin(logo_dir, 'combined.txt'), encoding='utf-8') as f:
-            self.combined_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
-        with open(pjoin(logo_dir, 'independent.txt'), encoding='utf-8') as f:
-            self.independent_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
+        # load logo
+        self.combined_logos = [i for i in Path(logo_dir, 'combined').glob("*")]
+        self.independent_logos = [i for i in Path(logo_dir, 'independent').glob("*")]
+        # with open(pjoin(logo_dir, 'combined.txt'), encoding='utf-8') as f:
+        #     self.combined_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
+        # with open(pjoin(logo_dir, 'independent.txt'), encoding='utf-8') as f:
+        #     self.independent_logos = [pjoin(logo_dir, i + '.png') for i in f.read().split('\n')]
         print(self.combined_logos)
         print(self.independent_logos)
         with open(name_source, encoding='utf-8') as f:
@@ -263,9 +268,11 @@ class WatermarkedImageGenerator:
 
     def generate(self, num):
         """generate num images with watermark"""
+        if num == -1:
+            num = len(self.img_list)
         pool = ProcessPoolExecutor(max_workers=self.num_workers)
         futures = []
-        for img_path in tqdm(self.img_list[:num], desc='allocating'):
+        for img_path in tqdm(islice(cycle(self.img_list), 0, num), desc='allocating', total=num):
             idx = np.random.choice(range(len(self.schemata)), p=self.schemata_weight)
             futures.append(
                 pool.submit(self._gen_wm_imgs, img_path, self.schemata[idx])
@@ -277,10 +284,10 @@ class WatermarkedImageGenerator:
                 for box in boxes:
                     content = [
                         0,
-                        (box[2] + box[0]) / img.width / 2,
-                        (box[3] + box[1]) / img.height / 2,
-                        (box[2] - box[0]) / img.width,
-                        (box[3] - box[1]) / img.height
+                        min((box[2] + box[0]) / 2, img.width) / img.width,
+                        min((box[3] + box[1]) / 2, img.height) / img.height,
+                        min(box[2] - box[0], img.width) / img.width,
+                        min(box[3] - box[1], img.height) / img.width,
                     ]
                     f.write(" ".join(map(lambda x: str(x), content)) + '\n')
 
@@ -313,30 +320,57 @@ class WatermarkedImageGenerator:
         return img.convert('RGB'), boxes, img_path
 
 
+def parse_args():
+    # python generator.py --test
+    # python generator.py --images_dir "ImageNet 1000 (mini)" --output_dir "./WatermarkDataset" -n 10
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-t', '--test', action='store_true', help="测试代码能否正常运行")
+    parser.add_argument('--images_dir', type=str, default='./ImageNet 1000 (mini)', help="输入图片目录")
+    parser.add_argument('--logo_dir', type=str, default='./logos3', help="输入水印logo目录")
+    parser.add_argument('--output_dir', type=str, default='./WatermarkDataset', help="输出目录")
+    parser.add_argument('--num_workers', type=int, default=4, help="进程数")
+    parser.add_argument('-n', '--num', type=int, default=-1, help="生成图片数量")
+    parser.add_argument('--seed', type=int, default=2022, help="种子")
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    water_mark = get_watermark("test_imgs/知乎.png", "@伸懒腰")
-    img, boxes = add_watermark(
-        Image.open('test_imgs/big_road.jpg'),
-        watermark=water_mark,
-        alpha=0.4,
-        position='tile',
-        scale=.07,
-        offset_scale=.03,
-        tile_density=(0.5, 1.2),
-        tile_rotate=10
-    )
-    img.save('sample5.png')
-    new_img = np.array(img)
-    for point in boxes:
-        rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
-        new_img[cc, rr] = (0, 255, 255, 255)
-    new_img = Image.fromarray(new_img)
-    plt.imshow(new_img)
-    plt.show()
-    # generator = WatermarkedImageGenerator(
-    #     './ImageNet 1000 (mini)',
-    #     './WatermarkDataset',
-    #     num_workers=4,
-    #     schemata_weight=[.3, .3, .1, .1, .2]
-    # )
-    # generator.generate(38668)
+    args = parse_args()
+    if args.test is True:
+        water_mark = get_watermark("test_imgs/知乎.png", "@伸懒腰")
+        img, boxes = add_watermark(
+            Image.open('test_imgs/big_road.jpg'),
+            watermark=water_mark,
+            alpha=0.4,
+            position='tile',
+            scale=.07,
+            offset_scale=.03,
+            tile_density=(0.5, 1.2),
+            tile_rotate=10
+        )
+        # img.save('sample5.png')
+        new_img = np.array(img)
+        for point in boxes:
+            rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)
+            new_img[cc, rr] = (0, 255, 255, 255)
+        new_img = Image.fromarray(new_img)
+        plt.imshow(new_img)
+        plt.show()
+    else:
+        images_dir = Path(args.images_dir)
+        output_dir = Path(args.output_dir)
+        assert images_dir.is_dir() and images_dir.exists()
+        output_dir.mkdir(exist_ok=True)
+        output_sub_image_dir = output_dir / 'images'
+        output_lbl_image_dir = output_dir / 'labels'
+        output_sub_image_dir.mkdir(exist_ok=True)
+        output_lbl_image_dir.mkdir(exist_ok=True)
+
+        random.seed(args.seed)
+        generator = WatermarkedImageGenerator(
+            args.images_dir, args.output_dir,
+            num_workers=args.num_workers,
+            schemata_weight=[.3, .3, .1, .1, .2],
+            logo_dir=args.logo_dir
+        )
+        generator.generate(args.num)
