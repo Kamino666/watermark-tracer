@@ -341,14 +341,14 @@ if __name__ == '__main__':
         img, boxes = add_watermark(
             Image.open('test_imgs/big_road.jpg'),
             watermark=water_mark,
-            alpha=0.4,
+            alpha=0.3,
             position='tile',
             scale=.07,
             offset_scale=.03,
             tile_density=(0.5, 1.2),
             tile_rotate=10
         )
-        # img.save('sample5.png')
+        img.save('sample6.png')
         new_img = np.array(img)
         for point in boxes:
             rr, cc = draw.rectangle_perimeter(point[:2], end=point[2:], shape=img.size)

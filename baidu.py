@@ -87,5 +87,5 @@ class BaiduAPI:
 
 
 if __name__ == '__main__':
-    api = BaiduAPI("baidu_cfg.json")
+    api = BaiduAPI("baidu_cfg_sample.json")
     x = api.search('烤鱼official')
